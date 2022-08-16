@@ -1,66 +1,136 @@
 const XLSX = require('xlsx');
-const Papa = require('papaparse');
-
-const wb = XLSX.readFile('./prevot.xlsx');
-const prevotJsonContent = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, raw: true});
-const prevotRawContent = wb.Sheets[wb.SheetNames[0]];
+const fs = require('fs');
 
 
-const fireworks = [];
-for (let product of prevotJsonContent) { 
+// JPA
+const jpaWb = XLSX.readFile('./prevot.xlsx');
+const jpaJsonContent = XLSX.utils.sheet_to_json(jpaWb.Sheets[jpaWb.SheetNames[0]], {header:1, raw: true});
+const jpaRawContent = jpaWb.Sheets[jpaWb.SheetNames[0]];
+
+const jpaFireworks = [];
+for (let product of jpaJsonContent) { 
     if (product.length !== 16) {
         continue;
-    } 
+    }
     const firework = {};             
     firework.ref = `${product[1]}`;
     firework.caliber = product[2];
     firework.name = product[3];
     firework.numberOfShots = product[3].match(/([0-9]{1,3}) tirs?/) ?? 1;   
-    firework.certification = product[4] ? product[4] : '';
+    firework.certification = product[4] ? product[4] : null;
     firework.category = product[5];
-    firework.activeWeight = product[6] ? product[6] : 0;
+    firework.activeWeight = product[6] ? (product[6] / 1000) : 0;
     firework.duration = product[7] ? product[7] : 2;
     firework.safetyDistances = product[8] ? product[8] : 0;
     firework.transportCategory = product[11];
-    firework.price = product[12];
-    firework.discountable = product[13] === 'oui';
-    // firework.providerStock = product[14] !== 'non';
-    // firework.nextArrival = product[15] ? product[15] : '';
-    firework.provider = 'prevot';
+    firework.priceWithoutTaxes = product[12];
+    firework.priceWithTaxes = product[13];
+    firework.discountable = product[14] === 'oui';
+    firework.isAvailable = product[15] !== 'non';
+    firework.nextArrival = product[16] ? product[16] : null;
+    firework.provider = 'jpa';
     firework.ascentTime = 0;
-    fireworks.push(firework);
+    firework.video = null;
+    jpaFireworks.push(firework);
 }
 
 
-for (const product in prevotRawContent) {
-    const ref = prevotRawContent[product];
+for (const product in jpaRawContent) {
+    const ref = jpaRawContent[product];
 
     if (ref.l) {
-        const firework = fireworks.find((firework) => firework.name === ref.l.display);
+        const firework = jpaFireworks.find((firework) => firework.name === ref.l.display);
         if (firework) {
             firework.video = ref.l.Target;
         }
     }
 }
 
-const fs = require('fs');
+// Write JPA
+console.log(`JPA : ${jpaFireworks.length}`);
+fs.writeFileSync('./fireworkJPAImport.json', JSON.stringify(jpaFireworks, null, 4));
 
-fs.writeFile('./fireworkImport.csv', fireworks.slice(0, 10).map((f) => {
-    return [
-        f.name,
-        `Cat: ${f.category} / Cal: ${f.caliber} / Cert: ${f.certification} / Dist: ${f.safetyDistances} / Div: ${f.transportCategory} / Disc: ${f.discountable}`,
-        f.duration,
-        f.ascentTime,
-        f.numberOfShots,
-        2022,
-        f.price,
-        f.ref,
-        'JPA',
-        'Other',
-        f.video,
-        '',
-        0
-    ].join(', ');
-}).join('\n'), {encoding: 'utf-8', flag: 'a'}, (err) => {
-    console.log(err);
-});
+
+// BREZAC
+const brezacWb = XLSX.readFile('./brezac.xlsx');
+const brezacArticlesJsonContent = XLSX.utils.sheet_to_json(brezacWb.Sheets['Articles'], {header:1, raw: true});
+const brezacUnitPricesJsonContent = XLSX.utils.sheet_to_json(brezacWb.Sheets['Prix PRO PCS'], {header:1, raw: true});
+const brezacBtePricesJsonContent = XLSX.utils.sheet_to_json(brezacWb.Sheets['Prix PRO BTE'], {header:1, raw: true});
+const brezacCaPricesJsonContent = XLSX.utils.sheet_to_json(brezacWb.Sheets['Prix PRO CA'], {header:1, raw: true});
+const brezacBteConditioningJsonContent = XLSX.utils.sheet_to_json(brezacWb.Sheets['Unités BTE'], {header:1, raw: true});
+const brezacCaConditioningJsonContent = XLSX.utils.sheet_to_json(brezacWb.Sheets['Unités CA'], {header:1, raw: true});
+
+const brezacFireworks = [];
+for (let product of brezacArticlesJsonContent) {
+    if (product.length !== 24 || !product[7] || ['STD', 'TRANSFERT', 'COLOR STD', 'COLOR', 'ACCPYRO'].includes(product[7]) || !['1', 'OPPORTUNITE'].includes(product[5])) {
+        continue;
+    }
+    const firework = {};         
+    firework.ref = `${product[3]}`;
+    firework.caliber = product[9];
+    firework.name = product[4];
+    firework.numberOfShots = 1;   
+    firework.certification = product[15] ? product[15] : null;
+    firework.category = product[13] ? product[13] : null;
+    firework.activeWeight = product[16] ? product[16] : 0;
+    firework.duration = product[17] ? product[17] : 2;
+    firework.safetyDistances = product[18] ? product[18] : 0;
+    firework.transportCategory = product[14];
+    firework.conditioning = {
+        unit: null,
+        bte: null,
+        ca: null
+    };
+    firework.priceWithoutTaxes = {
+        unit: 0,
+        bte: 0,
+        ca: 0
+    };
+    firework.priceWithTaxes = {
+        unit: 0,
+        bte: 0,
+        ca: 0
+    };
+    firework.discountable = false;
+    firework.isAvailable = product[20] >= 0;
+    firework.nextArrival = null;
+    firework.provider = 'brezac';
+    firework.ascentTime = 0;
+    firework.video = product[23] ? product[23] : null;
+    brezacFireworks.push(firework);
+}
+
+for (let brezacFirework of brezacFireworks) {
+    const unitHtPrice = brezacUnitPricesJsonContent.find((row) => row[3] === brezacFirework.ref);
+    if (unitHtPrice) {
+        brezacFirework.conditioning.unit = 1;
+        brezacFirework.priceWithoutTaxes.unit = unitHtPrice[9];
+        brezacFirework.priceWithTaxes.unit = unitHtPrice[9] * 1.2;
+    }
+    const bteHtPrice = brezacBtePricesJsonContent.find((row) => row[3] === brezacFirework.ref);
+    if (bteHtPrice) {
+        brezacFirework.conditioning.bte = 0;
+        brezacFirework.priceWithoutTaxes.bte = bteHtPrice[9];
+        brezacFirework.priceWithTaxes.bte = bteHtPrice[9] * 1.2;
+
+        const bteConditioning = brezacBteConditioningJsonContent.find((row) => row[3] === brezacFirework.ref);
+        if (bteConditioning) {
+            brezacFirework.conditioning.bte = parseInt(bteConditioning[4].slice(0, -4));
+        }
+    }
+    const caHtPrice = brezacCaPricesJsonContent.find((row) => row[3] === brezacFirework.ref);
+    if (caHtPrice) {
+        brezacFirework.conditioning.ca = 0;
+        brezacFirework.priceWithoutTaxes.ca = caHtPrice[9];
+        brezacFirework.priceWithTaxes.ca = caHtPrice[9] * 1.2;
+
+        const caConditioning = brezacCaConditioningJsonContent.find((row) => row[3] === brezacFirework.ref);
+        if (caConditioning) {
+            brezacFirework.conditioning.ca = parseInt(caConditioning[4].slice(0, -3));
+        }
+    }
+}
+
+// Write Brezac
+console.log(`Brezac : ${brezacFireworks.length}`);
+fs.writeFileSync('./fireworkBrezacImport.json', JSON.stringify(brezacFireworks, null, 4));
